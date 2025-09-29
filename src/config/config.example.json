@@ -1,0 +1,11 @@
+{
+  "symbols": ["RELIANCE", "TCS"],
+  "days_back": 300,
+  "timeframes": ["5mins", "15mins", "60mins", "day"],
+  "indicators": {
+    "rsi": { "length": 14, "overbought": 70, "oversold": 30, "mid": 50 },
+    "ema": { "fast": 9, "slow": 15 },
+    "bollinger": { "length": 20, "multiplier": 2.0 }
+  },
+  "output": { "dir": "reports", "performance_pdf": "reports/performance_report.pdf" }
+}

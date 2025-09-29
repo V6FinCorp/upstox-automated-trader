@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "upstox-automated-trader"
+version = "0.1.0"
+description = "Data + signals pipeline using Upstox and scanners repo"
+authors = [{ name = "V6FinCorp" }]
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "python-dotenv>=1.0.0",
+    "jsonschema>=4.19.0",
+    "upstox-api>=1.3.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["symbols", "days_back", "timeframes", "indicators", "output"],
+  "properties": {
+    "symbols": { "type": "array", "items": {"type": "string"}, "minItems": 1 },
+    "days_back": { "type": "integer", "minimum": 1 },
+    "timeframes": { "type": "array", "items": {"type": "string"}, "minItems": 1 },
+    "indicators": {
+      "type": "object",
+      "properties": {
+        "rsi": {
+          "type": "object",
+          "properties": {
+            "length": {"type": "integer", "minimum": 2},
+            "overbought": {"type": "number"},
+            "oversold": {"type": "number"},
+            "mid": {"type": "number"}
+          },
+          "required": ["length", "overbought", "oversold"]
+        },
+        "ema": {
+          "type": "object",
+          "properties": {
+            "fast": {"type": "integer", "minimum": 1},
+            "slow": {"type": "integer", "minimum": 1}
+          },
+          "required": ["fast", "slow"]
+        },
+        "bollinger": {
+          "type": "object",
+          "properties": {
+            "length": {"type": "integer", "minimum": 2},
+            "multiplier": {"type": "number", "minimum": 0.1}
+          },
+          "required": ["length", "multiplier"]
+        }
+      },
+      "required": ["rsi", "ema", "bollinger"]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "dir": {"type": "string"},
+        "performance_pdf": {"type": "string"}
+      },
+      "required": ["dir"]
+    }
+  }
+}
