@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Upstox Automated Trader — Mock UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; background: #f7f9fc; color: #111; }
+    header { display:flex; align-items:center; gap:16px; margin-bottom:12px }
+    .controls { display:flex; gap:8px; align-items:center }
+    select, button { padding:6px 8px; font-size:14px }
+    #chartWrap { width:100%; max-width:1200px; margin-top:12px }
+    #tableWrap { margin-top:12px; max-width:1200px; overflow:auto; background:#fff; border-radius:6px; padding:12px; box-shadow:0 1px 3px rgba(0,0,0,0.08) }
+    table { border-collapse:collapse; width:100% }
+    th, td { padding:6px 8px; border-bottom:1px solid #eee; text-align:left; font-size:13px }
+    th { background:#fafafa }
+    .small { font-size:13px; color:#555 }
+    .signal-long { background:#e8f8ee; color:#0b7a3a }
+    .signal-short { background:#fdecea; color:#b02a22 }
+    .signal-hold { background:#f3f4f6; color:#6b7280 }
+    .controls-row { display:flex; gap:8px; align-items:center; }
+    .pager { display:flex; gap:8px; align-items:center; margin-top:8px }
+    .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:50 }
+    .modal.active { display:flex }
+    .modal-content { width:95%; height:92%; background:#fff; border-radius:6px; padding:8px; box-shadow:0 6px 24px rgba(0,0,0,0.3); display:flex; flex-direction:column }
+    .modal-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:6px }
+    .close-btn { padding:6px 10px }
+  </style>
+  <!-- Prefer local copy (for offline or restricted environments), then CDN fallback -->
+  <script src="./lightweight-charts.standalone.production.js"></script>
+  <script>
+    // After the page loads, verify the library is available and show user-friendly instructions if not.
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        if (window.LightweightCharts) {
+          console.info('LightweightCharts loaded');
+          // Debug exports available on the global object
+          try {
+            console.info('LightweightCharts keys:', Object.keys(LightweightCharts));
+            console.info('Has CandlestickSeries:', !!LightweightCharts.CandlestickSeries);
+            console.info('Has LineSeries:', !!LightweightCharts.LineSeries);
+            console.info('Has createChart:', typeof LightweightCharts.createChart === 'function');
+            console.info('Has version():', typeof LightweightCharts.version === 'function' ? LightweightCharts.version() : 'n/a');
+          } catch (e) { console.warn('Error while introspecting LightweightCharts:', e); }
+        } else {
+          console.warn('LightweightCharts not found; chart features will be disabled.');
+          // create a visible banner with instructions and a copyable PowerShell command
+          const banner = document.createElement('div');
+          banner.style = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#fff3cd;color:#856404;padding:12px;border:1px solid #ffeeba;border-radius:6px;z-index:1000;max-width:90%;box-shadow:0 4px 12px rgba(0,0,0,0.08)';
+          banner.innerHTML = `<strong>Chart library missing.</strong> The page couldn't load Lightweight-Charts. To fix offline or blocked environments, download the library locally into <code>src/ui/</code> and reload.<br><div style="margin-top:8px;font-size:13px">Run this in PowerShell (from your repo root):</div><pre id="pwCmd" style="background:#fff;border:1px solid #eee;padding:8px;margin-top:6px">Invoke-WebRequest -Uri "https://cdn.jsdelivr.net/npm/lightweight-charts/dist/lightweight-charts.standalone.production.js" -OutFile ./src/ui/lightweight-charts.standalone.production.js</pre><div style="margin-top:8px;display:flex;gap:8px"><button id="copyCmd">Copy command</button><button id="openDocs">Show help</button></div>`;
+          document.body.appendChild(banner);
+          document.getElementById('copyCmd').addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(document.getElementById('pwCmd').textContent);
+              alert('Command copied to clipboard');
+            } catch (e) {
+              alert('Copy failed — please select and copy manually');
+            }
+          });
+          document.getElementById('openDocs').addEventListener('click', () => {
+            window.open('https://github.com/tradingview/lightweight-charts', '_blank');
+          });
+        }
+      }, 200);
+    });
+  </script>
+</head>
+<body>
+  <header>
+    <h2>Mock Signal Viewer</h2>
+    <div class="controls">
+      <label class="small">Symbol:
+        <select id="symbolSelect">
+          <option>RELIANCE</option>
+          <option>TCS</option>
+          <option>INFY</option>
+          <option>HDFCBANK</option>
+        </select>
+      </label>
+      <label class="small">Timeframe:
+        <select id="tfSelect">
+          <option value="5min">5min</option>
+          <option value="15min">15min</option>
+          <option value="60min">60min</option>
+          <option value="1day">1day</option>
+        </select>
+      </label>
+      <button id="genBtn">Generate Mock Data</button>
+      <button id="downloadBtn">Download CSV</button>
+  <label style="margin-left:12px" class="small"><input type="checkbox" id="chkRSI" checked /> RSI</label>
+  <label class="small"><input type="checkbox" id="chkEMA" checked /> EMA</label>
+  <label class="small"><input type="checkbox" id="chkBB" checked /> BB</label>
+  <label class="small"><input type="checkbox" id="chkCross" checked /> Crossovers</label>
+    </div>
+  </header>
+
+  <div id="chartWrap">
+    <div id="priceChart" style="height:360px; width:100%; max-width:1200px;"></div>
+  <div id="rsiChart" style="height:120px; width:100%; max-width:1200px; margin-top:8px;"></div>
+    <!-- fallback canvas when LightweightCharts not available -->
+  <canvas id="fallbackChart" style="height:360px; width:100%; max-width:1200px; display:none;"></canvas>
+  <canvas id="rsiFallback" style="height:120px; width:100%; max-width:1200px; display:none; margin-top:8px;"></canvas>
+  </div>
+
+  <div id="tableWrap">
+    <div class="small">Last 20 rows — indicators and consensus signals</div>
+    <table id="dataTable">
+      <thead>
+        <tr><th>timestamp</th><th>open</th><th>high</th><th>low</th><th>close</th><th>RSI</th><th>EMA_fast</th><th>EMA_slow</th><th>BB_upper</th><th>BB_lower</th><th>TRADE_SIGNAL</th><th>CONSENSUS</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    // Simple in-browser indicator implementations and mock data generator
+  function generateMockOHLC(n = 240, startPrice = 2500, stepMinutes = 5) {
+      const rows = [];
+      let price = startPrice;
+      const now = Date.now();
+      for (let i = 0; i < n; i++) {
+    // random walk
+    const t = new Date(now - (n - i) * stepMinutes * 60 * 1000);
+        const change = (Math.random() - 0.5) * 4;
+        const open = price + (Math.random() - 0.5) * 1.5;
+        price = Math.max(1, price + change);
+        const close = price + (Math.random() - 0.5) * 1.5;
+        const high = Math.max(open, close) + Math.random() * 1.5;
+        const low = Math.min(open, close) - Math.random() * 1.5;
+        const volume = Math.floor(1000 + Math.random() * 4000);
+        rows.push({ timestamp: t.toISOString(), open, high, low, close, volume });
+      }
+      return rows;
+    }
+
+    function emaArray(values, span) {
+      const k = 2 / (span + 1);
+      const out = [];
+      let prev = values[0];
+      out[0] = prev;
+      for (let i = 1; i < values.length; i++) {
+        const v = values[i];
+        prev = v * k + prev * (1 - k);
+        out.push(prev);
+      }
+      return out;
+    }
+
+    function rsiArray(values, len = 14) {
+      const deltas = [];
+      for (let i = 1; i < values.length; i++) deltas.push(values[i] - values[i - 1]);
+      const gains = deltas.map(d => Math.max(0, d));
+      const losses = deltas.map(d => Math.max(0, -d));
+      const out = new Array(values.length).fill(null);
+      let avgGain = 0, avgLoss = 0;
+      if (gains.length >= len) {
+        let sumG = 0, sumL = 0;
+        for (let i = 0; i < len; i++) { sumG += gains[i]; sumL += losses[i]; }
+        avgGain = sumG / len; avgLoss = sumL / len;
+        let rs = avgGain / (avgLoss || 1e-8);
+        out[len] = 100 - (100 / (1 + rs));
+        for (let i = len + 1; i < values.length; i++) {
+          const g = gains[i - 1]; const l = losses[i - 1];
+          avgGain = (avgGain * (len - 1) + g) / len;
+          avgLoss = (avgLoss * (len - 1) + l) / len;
+          rs = avgGain / (avgLoss || 1e-8);
+          out[i] = 100 - (100 / (1 + rs));
+        }
+      }
+      return out;
+    }
+
+    function bollinger(values, length = 20, mult = 2) {
+      const ma = [];
+      const upper = [];
+      const lower = [];
+      for (let i = 0; i < values.length; i++) {
+        if (i < length - 1) { ma.push(null); upper.push(null); lower.push(null); continue; }
+        const slice = values.slice(i - length + 1, i + 1);
+        const mean = slice.reduce((a, b) => a + b, 0) / length;
+        const sd = Math.sqrt(slice.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (length - 1));
+        ma.push(mean);
+        upper.push(mean + mult * sd);
+        lower.push(mean - mult * sd);
+      }
+      return { ma, upper, lower };
+    }
+
+    function majorityVote(rsiSignal, emaSignal, bbSignal) {
+      const votes = [rsiSignal, emaSignal, bbSignal];
+      const counts = {};
+      votes.forEach(v => counts[v] = (counts[v] || 0) + 1);
+      let best = null, bestCount = -1;
+      for (const k of Object.keys(counts)) { if (counts[k] > bestCount) { best = k; bestCount = counts[k]; } }
+      return best;
+    }
+
+    function computeIndicators(rows) {
+      const close = rows.map(r => r.close);
+      const fast = 9, slow = 21, rsiLen = 14, bbLen = 20, bbMult = 2;
+      const emaFast = emaArray(close, fast);
+      const emaSlow = emaArray(close, slow);
+      const rsi = rsiArray(close, rsiLen);
+      const bb = bollinger(close, bbLen, bbMult);
+
+      // assemble enriched rows
+      const out = rows.map((r, i) => {
+        const rsiVal = rsi[i] == null ? null : Number(rsi[i].toFixed(2));
+        const emaF = i < emaFast.length ? Number(emaFast[i].toFixed(3)) : null;
+        const emaS = i < emaSlow.length ? Number(emaSlow[i].toFixed(3)) : null;
+        const bbU = bb.upper[i] == null ? null : Number(bb.upper[i].toFixed(3));
+        const bbL = bb.lower[i] == null ? null : Number(bb.lower[i].toFixed(3));
+
+        const rsiSignal = rsiVal == null ? 'HOLD' : (rsiVal >= 70 ? 'SELL' : (rsiVal <= 30 ? 'BUY' : 'HOLD'));
+        const emaSignal = (emaF != null && emaS != null) ? (emaF > emaS ? 'BUY' : 'SELL') : 'HOLD';
+        const bbSignal = (bbU != null && bbL != null) ? (r.close > bbU ? 'SELL' : (r.close < bbL ? 'BUY' : 'HOLD')) : 'HOLD';
+
+        // simple cross detection
+        const prevF = (i > 0 ? emaFast[i - 1] : null);
+        const prevS = (i > 0 ? emaSlow[i - 1] : null);
+  const crossUp = (prevF != null && prevS != null && prevF <= prevS && emaF > emaS);
+  const crossDn = (prevF != null && prevS != null && prevF >= prevS && emaF < emaS);
+        const mid = 50;
+        const entryLong = crossUp && (rsiVal != null && rsiVal > mid);
+        const entryShort = crossDn && (rsiVal != null && rsiVal < mid);
+        const tradeSignal = entryLong ? 'LONG' : (entryShort ? 'SHORT' : 'HOLD');
+        const consensus = majorityVote(rsiSignal, emaSignal, bbSignal);
+
+  return Object.assign({}, r, { RSI: rsiVal, EMA_fast: emaF, EMA_slow: emaS, BB_upper: bbU, BB_lower: bbL, RSI_signal: rsiSignal, EMA_signal: emaSignal, BB_signal: bbSignal, TRADE_SIGNAL: tradeSignal, CONSENSUS: consensus, CROSS_UP: crossUp, CROSS_DN: crossDn });
+      });
+      return out;
+    }
+
+  // UI wiring
+    const genBtn = document.getElementById('genBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const symbolSelect = document.getElementById('symbolSelect');
+    const tfSelect = document.getElementById('tfSelect');
+  const chkRSI = document.getElementById('chkRSI');
+  const chkEMA = document.getElementById('chkEMA');
+  const chkBB = document.getElementById('chkBB');
+  const chkCross = document.getElementById('chkCross');
+    const tbody = document.querySelector('#dataTable tbody');
+  let lastData = [];
+  let chartMain = null;
+  let chartModal = null;
+  // current timeframe step in minutes (used by toLightweightTime)
+  let currentStepMinutes = 5;
+
+    // Pagination state
+    const PAGE_SIZE = 20;
+    let currentPage = 1;
+
+    function formatIST(iso) {
+      const d = new Date(iso);
+      // IST = UTC+5:30
+      const utc = d.getTime();
+      const ist = new Date(utc + (5.5 * 3600 * 1000));
+      const dd = ist.getDate().toString().padStart(2,'0');
+      const monNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const mon = monNames[ist.getMonth()];
+      const yyyy = ist.getFullYear();
+      const hh = ist.getHours().toString().padStart(2,'0');
+      const mm = ist.getMinutes().toString().padStart(2,'0');
+      return `${dd}-${mon}-${yyyy} ${hh}:${mm}`;
+    }
+
+    function renderTable(data) {
+      tbody.innerHTML = '';
+      const totalPages = Math.max(1, Math.ceil(data.length / PAGE_SIZE));
+      if (currentPage > totalPages) currentPage = totalPages;
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const pageRows = data.slice().reverse().slice(start, start + PAGE_SIZE);
+      for (const r of pageRows) {
+        const tr = document.createElement('tr');
+        const sigClass = r.TRADE_SIGNAL === 'LONG' ? 'signal-long' : (r.TRADE_SIGNAL === 'SHORT' ? 'signal-short' : 'signal-hold');
+        tr.innerHTML = `<td>${formatIST(r.timestamp)}</td><td>${r.open.toFixed(2)}</td><td>${r.high.toFixed(2)}</td><td>${r.low.toFixed(2)}</td><td>${r.close.toFixed(2)}</td><td>${r.RSI ?? ''}</td><td>${r.EMA_fast ?? ''}</td><td>${r.EMA_slow ?? ''}</td><td>${r.BB_upper ?? ''}</td><td>${r.BB_lower ?? ''}</td><td class="${sigClass}">${r.TRADE_SIGNAL}</td><td>${r.CONSENSUS}</td>`;
+        tbody.appendChild(tr);
+      }
+      renderPager(data.length, currentPage, totalPages);
+    }
+
+    function renderPager(totalRows, page, totalPages) {
+      // remove existing pager
+      const existing = document.querySelector('.pager');
+      if (existing) existing.remove();
+      const pager = document.createElement('div');
+      pager.className = 'pager';
+      const info = document.createElement('div');
+      info.className = 'small';
+      info.textContent = `Page ${page} / ${totalPages}  —  rows ${Math.max(1,(page-1)*PAGE_SIZE+1)}-${Math.min(totalRows,page*PAGE_SIZE)} of ${totalRows}`;
+      const prev = document.createElement('button'); prev.textContent = 'Prev';
+      const next = document.createElement('button'); next.textContent = 'Next';
+      prev.disabled = page <= 1; next.disabled = page >= totalPages;
+      prev.onclick = () => { if (currentPage>1) { currentPage--; renderTable(lastData); } };
+      next.onclick = () => { if (currentPage<totalPages) { currentPage++; renderTable(lastData); } };
+      pager.appendChild(prev); pager.appendChild(next); pager.appendChild(info);
+      document.getElementById('tableWrap').appendChild(pager);
+    }
+
+    function toLightweightTime(iso) {
+      // For intraday (minutes) use unix seconds. For daily or higher, return a date string
+      const d = new Date(iso);
+      if (currentStepMinutes >= 1440) {
+        // return YYYY-MM-DD (lightweight-charts accepts this for business day)
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return Math.floor(d.getTime() / 1000);
+    }
+
+    function renderChart(data, targetId = 'priceChart') {
+      // prepare series data
+      const candles = data.map(r => ({ time: toLightweightTime(r.timestamp), open: r.open, high: r.high, low: r.low, close: r.close }));
+      const emaF = data.map(r => ({ time: toLightweightTime(r.timestamp), value: r.EMA_fast }));
+      const emaS = data.map(r => ({ time: toLightweightTime(r.timestamp), value: r.EMA_slow }));
+      const bbU = data.map(r => ({ time: toLightweightTime(r.timestamp), value: r.BB_upper }));
+      const bbL = data.map(r => ({ time: toLightweightTime(r.timestamp), value: r.BB_lower }));
+
+      // destroy existing chart for target
+      if (targetId === 'priceChart') {
+        if (chartMain) { chartMain.remove(); chartMain = null; }
+      } else {
+        if (chartModal) { chartModal.remove(); chartModal = null; }
+      }
+
+      const container = document.getElementById(targetId);
+      // ensure fallback canvas is hidden initially
+      const fallbackCanvas = document.getElementById('fallbackChart');
+      if (fallbackCanvas) { fallbackCanvas.style.display = 'none'; }
+      // log version when available
+      if (window.LightweightCharts && typeof LightweightCharts.version === 'function') {
+        console.info('LightweightCharts version:', LightweightCharts.version());
+      }
+      const chart = LightweightCharts.createChart(container, { layout: { backgroundColor: '#ffffff', textColor: '#333' }, rightPriceScale: { scaleMargins: { top: 0.15, bottom: 0.2 } }, timeScale: { timeVisible: true, secondsVisible: false } });
+      // Prefer the newer v5 API: chart.addSeries(type, options)
+      // If that isn't available, fall back to a basic canvas renderer so the UI remains usable.
+      let cs = null;
+      let closeLine = null;
+      try {
+        if (typeof chart.addSeries === 'function' && window.LightweightCharts) {
+          // Candlestick
+          if (LightweightCharts.CandlestickSeries) {
+            cs = chart.addSeries(LightweightCharts.CandlestickSeries, { upColor: '#0b7a3a', downColor: '#b02a22', wickUpColor: '#0b7a3a', wickDownColor: '#b02a22' });
+            cs.setData(candles);
+          } else {
+            console.warn('CandlestickSeries export not found on LightweightCharts; falling back to line series');
+            // try line series via addSeries
+            if (LightweightCharts.LineSeries) {
+              closeLine = chart.addSeries(LightweightCharts.LineSeries, { color: '#0b63ff', lineWidth: 1 });
+              closeLine.setData(candles.map(c => ({ time: c.time, value: c.close })));
+            } else {
+              console.warn('LineSeries export not found; falling back to canvas renderer');
+              drawFallbackChart(data, targetId === 'priceChart' ? 'fallbackChart' : 'fallbackChart');
+            }
+          }
+
+          // indicator overlays controlled by checkboxes
+          const showEMA = chkEMA ? chkEMA.checked : true;
+          const showBB = chkBB ? chkBB.checked : true;
+          const showCross = chkCross ? chkCross.checked : true;
+          if (LightweightCharts.LineSeries) {
+            if (showEMA) {
+              const emaFastSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#f39c12', lineWidth: 1 });
+              const emaSlowSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#27ae60', lineWidth: 1 });
+              emaFastSeries.setData(emaF.filter(p => p.value != null));
+              emaSlowSeries.setData(emaS.filter(p => p.value != null));
+            }
+            if (showBB) {
+              const dashedStyle = (LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed) ? LightweightCharts.LineStyle.Dashed : undefined;
+              const bbOpts = dashedStyle ? { color: '#999', lineWidth: 1, lineStyle: dashedStyle } : { color: '#999', lineWidth: 1 };
+              const bbUpperSeries = chart.addSeries(LightweightCharts.LineSeries, bbOpts);
+              const bbLowerSeries = chart.addSeries(LightweightCharts.LineSeries, bbOpts);
+              bbUpperSeries.setData(bbU.filter(p => p.value != null));
+              bbLowerSeries.setData(bbL.filter(p => p.value != null));
+            }
+            // add markers for crossovers if requested
+            if (showCross) {
+              try {
+                const markers = [];
+                data.forEach((r, i) => {
+                  if (r.CROSS_UP) markers.push({ time: toLightweightTime(r.timestamp), position: 'aboveBar', color: '#0b7a3a', shape: 'arrowUp', text: 'XUP' });
+                  if (r.CROSS_DN) markers.push({ time: toLightweightTime(r.timestamp), position: 'belowBar', color: '#b02a22', shape: 'arrowDown', text: 'XDN' });
+                });
+                // attach markers to the candlestick or line series if available
+                let attached = false;
+                if (cs && typeof cs.setMarkers === 'function') {
+                  try { cs.setMarkers(markers); attached = true; } catch (e) { console.warn('cs.setMarkers failed', e); }
+                }
+                if (!attached && closeLine && typeof closeLine.setMarkers === 'function') {
+                  try { closeLine.setMarkers(markers); attached = true; } catch (e) { console.warn('closeLine.setMarkers failed', e); }
+                }
+                // If neither series supports setMarkers (some builds), create a transparent marker series and set markers on it
+                if (!attached && chart && window.LightweightCharts && LightweightCharts.LineSeries) {
+                  try {
+                    window._markerSeries = window._markerSeries || {};
+                    if (window._markerSeries[targetId]) { try { window._markerSeries[targetId].remove(); } catch(e){} window._markerSeries[targetId] = null; }
+                    const markerSeries = chart.addSeries(LightweightCharts.LineSeries, { color: 'rgba(0,0,0,0)', lineWidth: 0 });
+                    const markerData = data.map(d => ({ time: toLightweightTime(d.timestamp), value: d.close }));
+                    try { markerSeries.setData(markerData); } catch(e) { /* ignore if not needed */ }
+                    markerSeries.setMarkers(markers);
+                    window._markerSeries[targetId] = markerSeries;
+                    attached = true;
+                  } catch (e) { console.warn('Failed to create markerSeries:', e); }
+                }
+              } catch (e) { console.warn('Failed to set markers on chart:', e); }
+            }
+          } else {
+            console.warn('LineSeries export not available on this LightweightCharts build; skipping EMA/BB overlays');
+          }
+        } else {
+          console.warn('chart.addSeries or LightweightCharts not available; using fallback canvas renderer');
+          // hide the chart div and show fallback canvas
+          try { container.style.display = 'none'; } catch (e) {}
+          if (fallbackCanvas) { fallbackCanvas.style.display = 'block'; }
+          drawFallbackChart(data, 'fallbackChart');
+        }
+      } catch (err) {
+        console.warn('Error while adding series to chart; falling back to canvas renderer', err);
+        try { container.style.display = 'none'; } catch (e) {}
+        if (fallbackCanvas) { fallbackCanvas.style.display = 'block'; }
+        drawFallbackChart(data, 'fallbackChart');
+      }
+
+  // ensure chart container is visible
+  try { document.getElementById('priceChart').style.display = 'block'; } catch (e) {}
+  // attach to appropriate variable
+  if (targetId === 'priceChart') chartMain = chart; else chartModal = chart;
+    }
+
+    function drawFallbackChart(data, targetId = 'fallbackChart') {
+      const canvas = document.getElementById(targetId);
+      if (!canvas) return;
+      // show canvas
+      canvas.style.display = 'block';
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width);
+      canvas.height = Math.floor(rect.height);
+      const ctx = canvas.getContext('2d');
+      // clear
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      const closes = data.map(d => d.close);
+      const pad = 30;
+      const w = canvas.width - pad * 2;
+      const h = canvas.height - pad * 2;
+      const min = Math.min(...closes);
+      const max = Math.max(...closes);
+      function x(i) { return pad + (i / (closes.length - 1)) * w; }
+      function y(v) { return pad + (1 - (v - min) / (max - min || 1)) * h; }
+      // draw axis
+      ctx.strokeStyle = '#ddd'; ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(pad, pad + h); ctx.lineTo(pad + w, pad + h); ctx.stroke();
+      // draw close line
+      ctx.strokeStyle = '#0b63ff'; ctx.lineWidth = 1.5; ctx.beginPath();
+      closes.forEach((c,i) => { const xi = x(i); const yi = y(c); if (i===0) ctx.moveTo(xi, yi); else ctx.lineTo(xi, yi); });
+      ctx.stroke();
+      // draw EMAs if present and enabled
+      const showEMA = chkEMA ? chkEMA.checked : true;
+      const showBB = chkBB ? chkBB.checked : true;
+      const showCross = chkCross ? chkCross.checked : true;
+      const emaF = data.map(d => d.EMA_fast).filter(v=>v!=null);
+      if (showEMA && emaF.length) {
+        const fullEmaF = data.map(d => d.EMA_fast);
+        ctx.strokeStyle = '#f39c12'; ctx.lineWidth = 1; ctx.beginPath(); fullEmaF.forEach((c,i) => { if (c==null) return; const xi=x(i); const yi=y(c); if (!isNaN(yi)) { if (i===0) ctx.moveTo(xi, yi); else ctx.lineTo(xi, yi); }}); ctx.stroke();
+      }
+      // draw crossover markers on canvas
+      if (showCross) {
+        data.forEach((d,i) => {
+          const xi = x(i);
+          if (d.CROSS_UP) {
+            ctx.fillStyle = '#0b7a3a'; ctx.beginPath(); ctx.moveTo(xi, pad+4); ctx.lineTo(xi-6, pad+14); ctx.lineTo(xi+6, pad+14); ctx.closePath(); ctx.fill();
+          }
+          if (d.CROSS_DN) {
+            ctx.fillStyle = '#b02a22'; ctx.beginPath(); ctx.moveTo(xi, pad+h-4); ctx.lineTo(xi-6, pad+h-14); ctx.lineTo(xi+6, pad+h-14); ctx.closePath(); ctx.fill();
+          }
+        });
+      }
+    }
+
+    function openFullChart() {
+      const modal = document.getElementById('chartModal');
+      modal.classList.add('active');
+      // render into modal canvas
+    renderChart(lastData, 'modalChart');
+    renderRSIChart(lastData, 'modalRsiChart', 'rsiFallbackModal');
+    }
+
+    function closeFullChart() {
+      const modal = document.getElementById('chartModal');
+      modal.classList.remove('active');
+  if (chartModal) { chartModal.remove(); chartModal = null; }
+    try { if (window.rsiCharts && window.rsiCharts['modalRsiChart']) { window.rsiCharts['modalRsiChart'].remove(); window.rsiCharts['modalRsiChart'] = null; } } catch(e) {}
+    }
+
+    function generateAndRender() {
+      const symbol = symbolSelect.value;
+      const tf = tfSelect.value;
+      // choose number of points based on timeframe
+      const n = tf === '1day' ? 200 : (tf === '60min' ? 300 : 240);
+  // determine step in minutes
+  let step = 5;
+  if (tf === '5min') step = 5; else if (tf === '15min') step = 15; else if (tf === '60min') step = 60; else if (tf === '1day') step = 1440;
+  // store for time formatting
+  currentStepMinutes = step;
+  const rows = generateMockOHLC(n, 2500 + (Math.random() - 0.5) * 200, step);
+      const enriched = computeIndicators(rows);
+      lastData = enriched;
+      currentPage = 1;
+    renderTable(enriched);
+  renderChart(enriched);
+  renderRSIChart(enriched);
+    }
+
+  genBtn.addEventListener('click', generateAndRender);
+  // re-render when toggles change (update both price and RSI panes)
+  [chkRSI, chkEMA, chkBB, chkCross].forEach(el => { if (el) el.addEventListener('change', () => { if (lastData && lastData.length) { renderChart(lastData); renderRSIChart(lastData); } }); });
+  // regenerate when timeframe changes
+  if (tfSelect) tfSelect.addEventListener('change', () => generateAndRender());
+    // initial render
+    generateAndRender();
+
+  // full screen modal
+  const modalHtml = document.createElement('div');
+  modalHtml.id = 'chartModal';
+  modalHtml.className = 'modal';
+  modalHtml.innerHTML = `<div class="modal-content"><div class="modal-toolbar"><div><strong>Full Chart</strong></div><div><button id="modalClose" class="close-btn">Close</button></div></div><div style="flex:1;display:flex;flex-direction:column"><div id="modalChart" style="height:calc(100% - 140px); width:100%"></div><div id="modalRsiChart" style="height:120px; width:100%; margin-top:8px"></div><canvas id="rsiFallbackModal" style="height:120px; width:100%; display:none; margin-top:8px;"></canvas></div></div>`;
+  document.body.appendChild(modalHtml);
+  document.getElementById('modalClose').addEventListener('click', closeFullChart);
+  // open on chart click
+  document.getElementById('chartWrap').addEventListener('click', () => openFullChart());
+
+  // add checkbox controls to modal toolbar (sync with main checkboxes)
+  const modalToolbar = document.querySelector('#chartModal .modal-toolbar');
+  if (modalToolbar) {
+    const controlsHtml = document.createElement('div');
+    controlsHtml.innerHTML = `<label style="margin-left:12px" class="small"><input type="checkbox" id="m_chkRSI" /> RSI</label><label class="small"><input type="checkbox" id="m_chkEMA" /> EMA</label><label class="small"><input type="checkbox" id="m_chkBB" /> BB</label><label class="small"><input type="checkbox" id="m_chkCross" /> Crossovers</label>`;
+    modalToolbar.appendChild(controlsHtml);
+    // sync modal checkboxes with main
+    function syncModal() {
+      ['RSI','EMA','BB','Cross'].forEach(k => {
+        const main = document.getElementById('chk' + k);
+        const modal = document.getElementById('m_chk' + k);
+        if (main && modal) modal.checked = main.checked;
+      });
+    }
+    syncModal();
+    ['chkRSI','chkEMA','chkBB','chkCross'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', syncModal);
+    });
+    ['m_chkRSI','m_chkEMA','m_chkBB','m_chkCross'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => {
+        const main = document.getElementById(id.replace('m_',''));
+        if (main) {
+          main.checked = el.checked;
+          if (lastData && lastData.length) {
+            // update main chart
+            renderChart(lastData);
+            renderRSIChart(lastData);
+            // update modal chart if visible
+            const modal = document.getElementById('chartModal');
+            if (modal && modal.classList.contains('active')) {
+              renderChart(lastData, 'modalChart');
+              renderRSIChart(lastData, 'modalRsiChart', 'rsiFallbackModal');
+            }
+          }
+        }
+      });
+    });
+  }
+
+  // Render RSI in a separate pane (LightweightCharts or fallback)
+  // targetId: id of container div for library chart; fallbackId: id of canvas fallback
+  function renderRSIChart(data, targetId = 'rsiChart', fallbackId = 'rsiFallback') {
+    const showRSI = chkRSI ? chkRSI.checked : true;
+    const container = document.getElementById(targetId);
+    const fallback = document.getElementById(fallbackId);
+    if (!showRSI) {
+      if (container) container.style.display = 'none';
+      if (fallback) fallback.style.display = 'none';
+      return;
+    }
+    // try LightweightCharts area
+    try {
+      if (window.LightweightCharts && typeof LightweightCharts.createChart === 'function') {
+        window.rsiCharts = window.rsiCharts || {};
+        if (window.rsiCharts[targetId]) { try { window.rsiCharts[targetId].remove(); } catch (e) {} window.rsiCharts[targetId] = null; }
+        const c = LightweightCharts.createChart(container, { layout: { backgroundColor: '#fff', textColor: '#333' }, height: 120, timeScale: { timeVisible: true, secondsVisible: false } });
+        const rsiSeries = c.addLineSeries({ color: '#6c5ce7', lineWidth: 1 });
+        rsiSeries.setData(data.map(d => ({ time: toLightweightTime(d.timestamp), value: d.RSI ?? 0 })));
+        // add static threshold lines at 70 and 30
+        try {
+          const rsiUpper = c.addLineSeries({ color: '#999', lineWidth: 1, lineStyle: (LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed) ? LightweightCharts.LineStyle.Dashed : undefined });
+          const rsiLower = c.addLineSeries({ color: '#999', lineWidth: 1, lineStyle: (LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed) ? LightweightCharts.LineStyle.Dashed : undefined });
+          const tData = data.map(d => ({ time: toLightweightTime(d.timestamp), value: 70 }));
+          rsiUpper.setData(tData);
+          const bData = data.map(d => ({ time: toLightweightTime(d.timestamp), value: 30 }));
+          rsiLower.setData(bData);
+        } catch (e) { /* ignore threshold drawing if not supported */ }
+        window.rsiCharts[targetId] = c;
+        if (fallback) fallback.style.display = 'none';
+        if (container) container.style.display = 'block';
+        return;
+      }
+    } catch (e) { console.warn('RSI chart build failed:', e); }
+    // fallback canvas
+    if (container) container.style.display = 'none';
+    if (!fallback) return;
+    fallback.style.display = 'block';
+    const ctx = fallback.getContext('2d');
+    const rect = fallback.getBoundingClientRect();
+    fallback.width = Math.floor(rect.width); fallback.height = Math.floor(rect.height);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,fallback.width,fallback.height);
+    const values = data.map(d => d.RSI ?? null);
+    const pad = 8; const w = fallback.width - pad*2; const h = fallback.height - pad*2;
+    const valid = values.filter(v => v != null);
+    if (!valid.length) return;
+    const min = 0; const max = 100;
+    function x(i) { return pad + (i / (values.length - 1)) * w; }
+    function y(v) { return pad + (1 - (v - min) / (max - min)) * h; }
+  // draw threshold lines (70 / 30)
+  ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+  const y70 = y(70); const y30 = y(30);
+  ctx.beginPath(); ctx.moveTo(pad, y70); ctx.lineTo(pad + w, y70); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad, y30); ctx.lineTo(pad + w, y30); ctx.stroke();
+  ctx.setLineDash([]);
+  // draw RSI line
+  ctx.strokeStyle = '#6c5ce7'; ctx.beginPath(); values.forEach((v,i)=>{ if (v==null) return; const xi=x(i), yi=y(v); if (i===0) ctx.moveTo(xi, yi); else ctx.lineTo(xi, yi); }); ctx.stroke();
+  }
+
+
+    downloadBtn.addEventListener('click', () => {
+      if (!lastData || !lastData.length) return alert('No data');
+      const keys = ['timestamp','open','high','low','close','volume','RSI','EMA_fast','EMA_slow','BB_upper','BB_lower','TRADE_SIGNAL','CONSENSUS'];
+      const rows = [keys.join(',')].concat(lastData.map(r => keys.map(k => (r[k] == null ? '' : r[k])).join(',')));
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${symbolSelect.value}_${tfSelect.value}_mock.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
