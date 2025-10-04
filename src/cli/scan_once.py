@@ -35,31 +35,9 @@ def main():
 
     out_dir = os.path.abspath(os.path.join(os.path.dirname(cfg_path), "..", cfg['output']['dir']))
     
-    def _synthetic_df(n: int = 240):
-        import numpy as np
-        import pandas as pd
-        rng = pd.date_range(end=pd.Timestamp.utcnow(), periods=n, freq="5min")
-        price = 2500 + np.cumsum(np.random.normal(0, 2, size=n))
-        high = price + np.random.uniform(0.5, 2.0, size=n)
-        low = price - np.random.uniform(0.5, 2.0, size=n)
-        openp = price + np.random.normal(0, 1, size=n)
-        vol = np.random.randint(1000, 5000, size=n)
-        df = pd.DataFrame({
-            "timestamp": rng,
-            "open": openp,
-            "high": high,
-            "low": low,
-            "close": price,
-            "volume": vol,
-        })
-        return df
     for symbol in cfg['symbols']:
         for tf in cfg['timeframes']:
-            try:
-                df = fetch_df(symbol, cfg['days_back'], tf)
-            except Exception as e:
-                print(f"Data fetch failed ({e}); using synthetic data for demo.")
-                df = _synthetic_df()
+            df = fetch_df(symbol, cfg['days_back'], tf)
             df_sig = generate_signals(df, cfg)
             out = write_csv(df_sig, out_dir, symbol, tf)
             print(f"Wrote: {out}")

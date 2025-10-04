@@ -8,9 +8,34 @@ def _ensure_scanners_on_path(scanners_path: str | None = None):
 
 
 def fetch_df(symbol: str, days_back: int, timeframe: str) -> pd.DataFrame:
-    _ensure_scanners_on_path()
-    from data_loader import fetch_data_for_symbol  # provided by scanners repo
+    import importlib.util
+    scanners_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'vendor', 'scanners'))
+    data_loader_path = os.path.join(scanners_path, 'data_loader', 'data_loader.py')
+    config_path = os.path.join(scanners_path, 'data_loader', 'config', 'config.py')
+    # Import config
+    config_spec = importlib.util.spec_from_file_location('config', config_path)
+    config_module = importlib.util.module_from_spec(config_spec)
+    config_spec.loader.exec_module(config_module)
+    # Import data_loader
+    spec = importlib.util.spec_from_file_location('data_loader', data_loader_path)
+    data_loader = importlib.util.module_from_spec(spec)
+    # Inject config into data_loader
+    setattr(data_loader, 'base_cfg', config_module)
+    spec.loader.exec_module(data_loader)
+    fetch_data_for_symbol = data_loader.fetch_data_for_symbol
+    # Ensure data is saved to the correct folder
+    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data'))
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    # Patch environment so scanners repo writes to our data folder
+    os.environ['DATA_DIR'] = data_dir
     csv_path = fetch_data_for_symbol(symbol, days_back)
+    # If the scanners repo writes to its own data folder, move the file to our data folder
+    if not csv_path.startswith(data_dir):
+        import shutil
+        dest_path = os.path.join(data_dir, os.path.basename(csv_path))
+        shutil.move(csv_path, dest_path)
+        csv_path = dest_path
     df = pd.read_csv(csv_path)
     df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
     df = df.sort_values('timestamp').set_index('timestamp')

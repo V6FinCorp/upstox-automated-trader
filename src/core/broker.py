@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
-from upstox_api.api import Upstox, Session
+from upstox_client import OrderApi, Configuration, ApiClient
 
 
 class Broker:
@@ -17,12 +17,10 @@ class Broker:
         self.api_key = api_key
         self.api_secret = api_secret
         self.access_token = access_token
-        self.upstox_client = self._initialize_client()
-
-    def _initialize_client(self) -> Upstox:
-        session = Session(self.api_key, self.api_secret)
-        session.set_access_token(self.access_token)
-        return Upstox(self.api_key, self.access_token)
+        self.configuration = Configuration()
+        self.configuration.access_token = self.access_token
+        self.api_client = ApiClient(self.configuration)
+        self.order_api = OrderApi(self.api_client)
 
     # ------------------------------------------------------------------
     # Basic Orders
@@ -48,26 +46,41 @@ class Broker:
         - order_type: 'MARKET' | 'LIMIT' | 'SL' | 'SL-M' (as supported)
         - product_type: e.g., 'CNC', 'MIS', 'NRML'
         """
-        params: Dict[str, Any] = dict(
-            instrument=instrument,
+        from upstox_client.models import PlaceOrderRequest
+        # Map product_type to allowed values
+        sdk_product = product_type
+        if product_type == "CNC":
+            sdk_product = "D"
+        elif product_type == "MIS":
+            sdk_product = "I"
+
+        # SDK requires price to be set, even for market orders
+        sdk_price = price
+        if order_type == "MARKET" and price is None:
+            sdk_price = 0
+
+        sdk_disclosed_quantity = disclosed_quantity if disclosed_quantity is not None else 0
+        sdk_trigger_price = trigger_price if trigger_price is not None else 0
+        sdk_is_amo = additional_params.get('is_amo', False) if additional_params else False
+        order_req = PlaceOrderRequest(
+            instrument_token=instrument,
             quantity=quantity,
-            side=side,
+            transaction_type=side,
             order_type=order_type,
-            product_type=product_type,
-            price=price,
-            trigger_price=trigger_price,
+            product=sdk_product,
+            price=sdk_price,
+            trigger_price=sdk_trigger_price,
             validity=validity,
             tag=tag,
-            disclosed_quantity=disclosed_quantity,
+            disclosed_quantity=sdk_disclosed_quantity,
+            is_amo=sdk_is_amo,
         )
-        # prune None values to avoid SDK validation issues
-        clean = {k: v for k, v in params.items() if v is not None}
+
         if additional_params:
-            clean.update(additional_params)
-        # Many SDKs expect symbol instead of instrument; mirror param if needed
-        if "instrument" in clean and "symbol" not in clean:
-            clean["symbol"] = clean["instrument"]
-        return self.upstox_client.place_order(**clean)
+            for k, v in additional_params.items():
+                setattr(order_req, k, v)
+        response = self.order_api.place_order(order_req, api_version="v2")
+        return response.to_dict() if hasattr(response, 'to_dict') else response
 
     def get_order_status(self, order_id: str) -> Dict[str, Any]:
         return self.upstox_client.get_order(order_id)

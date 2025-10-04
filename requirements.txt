@@ -2,6 +2,5 @@ pandas>=2.0.0
 numpy>=1.24.0
 python-dotenv>=1.0.0
 jsonschema>=4.19.0
-# Upstox SDK (module: upstox_api) comes from package 'upstox-python'
-upstox-python>=2.2.0
+upstox-python-sdk==2.3.0
 matplotlib>=3.8.0
